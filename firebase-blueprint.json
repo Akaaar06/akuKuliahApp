@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "Course": {
+      "title": "Course",
+      "description": "Mata kuliah pada semester aktif mahasiswa",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "kode": { "type": "string" },
+        "nama": { "type": "string" },
+        "sks": { "type": "number" },
+        "semester": { "type": "number" },
+        "dosenPengampu": { "type": "string" },
+        "dpj": { "type": "string" },
+        "linkGDrive": { "type": "string" },
+        "hari": { "type": "string" },
+        "jam": { "type": "string" },
+        "ruang": { "type": "string" },
+        "riwayatDosen": {
+          "type": "array"
+        },
+        "riwayatPresensi": {
+          "type": "array"
+        }
+      },
+      "required": ["kode", "nama", "dosenPengampu", "semester"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Tugas perkuliahan dengan tenggat waktu dan pengingat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "mataKuliahId": { "type": "string" },
+        "mataKuliahNama": { "type": "string" },
+        "namaTugas": { "type": "string" },
+        "deadline": { "type": "string" },
+        "deskripsi": { "type": "string" },
+        "selesai": { "type": "boolean" },
+        "tanggalDibuat": { "type": "string" }
+      },
+      "required": ["mataKuliahId", "namaTugas", "deadline"]
+    },
+    "Material": {
+      "title": "Material",
+      "description": "Berkas materi perkuliahan yang disimpan di Firebase Storage dan metadata di Firestore",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "courseId": { "type": "string" },
+        "nama": { "type": "string" },
+        "pertemuan": { "type": "number" },
+        "format": { "type": "string", "enum": ["PDF", "PPT", "PPTX"] },
+        "ukuran": { "type": "string" },
+        "kategori": { "type": "string", "enum": ["Materi", "Tugas", "Lainnya"] },
+        "lokasiPenyimpanan": { "type": "string" },
+        "tanggal": { "type": "string" }
+      },
+      "required": ["courseId", "nama", "format", "lokasiPenyimpanan"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Pengaturan preferensi pengguna",
+      "type": "object",
+      "properties": {
+        "darkMode": { "type": "boolean" },
+        "currentSemester": { "type": "string" },
+        "notifikasiDeadline": { "type": "boolean" },
+        "autoSilentKuliah": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Koleksi data mata kuliah"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Koleksi tugas mahasiswa"
+    },
+    "/materials/{materialId}": {
+      "schema": "Material",
+      "description": "Koleksi metadata berkas perkuliahan"
+    },
+    "/settings/{settingId}": {
+      "schema": "Settings",
+      "description": "Pengaturan preferensi aplikasi"
+    }
+  }
+}

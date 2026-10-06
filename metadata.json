@@ -1,0 +1,6 @@
+{
+  "name": "Portal Akademik Modern Glass",
+  "description": "Sistem Informasi Akademik Mahasiswa dengan antarmuka Liquid Glass minimalis dan bebas gradien.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#2563eb"/>
+  <g transform="translate(64, 76) scale(0.75)" stroke="#ffffff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Mortarboard cap -->
+    <path d="M256 70 L480 180 L256 290 L32 180 Z" fill="#ffffff" stroke="#ffffff"/>
+    <!-- Cap underband -->
+    <path d="M100 216 V340 C100 370 170 410 256 410 C342 410 412 370 412 340 V216" fill="#1d4ed8" stroke="#ffffff"/>
+    <!-- Tassel with orange highlight -->
+    <path d="M424 200 V330" stroke="#ea580c" stroke-width="20"/>
+    <circle cx="424" cy="345" r="16" fill="#ea580c" stroke="#ea580c"/>
+  </g>
+</svg>
