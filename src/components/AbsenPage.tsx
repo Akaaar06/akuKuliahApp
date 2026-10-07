@@ -85,7 +85,11 @@ export const AbsenPage: React.FC<AbsenPageProps> = ({
           const currentStatus: AttendanceRecordStatus = currentRecord
             ? currentRecord.status
             : 'belum';
-          const currentDate = currentRecord ? currentRecord.tanggal : '24 Okt 2024';
+          // Tanpa record, tampilkan placeholder berbahasa Indonesia — sebelumnya
+          // memakai tanggal hardcoded "24 Okt 2024" yang selalu muncul walau
+          // belum ada satu pun sesi tercatat.
+          const currentDate = currentRecord?.tanggal || 'Belum ada presensi';
+          const currentWeek = currentRecord?.mingguKe;
 
           return (
             <div
@@ -137,6 +141,7 @@ export const AbsenPage: React.FC<AbsenPageProps> = ({
                 <div>
                   <span className="text-[10px] text-slate-400 block font-mono">
                     Periode Aktif: {currentDate}
+                    {currentWeek ? ` · Minggu ke-${currentWeek}` : ''}
                   </span>
                   <span
                     className={`inline-flex items-center gap-1 font-bold text-[11px] px-2.5 py-0.5 rounded mt-0.5 ${

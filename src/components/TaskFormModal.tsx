@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Course, Task } from '../types';
 import { X, Check, Bell } from 'lucide-react';
 import { calculateReminders } from '../services/storage';
+import {
+  dateKey,
+  formatWaktu,
+  gabungTanggalWaktu,
+  splitTanggalWaktuInput,
+} from '../utils/date';
 
 interface TaskFormModalProps {
   isOpen: boolean;
@@ -34,9 +40,12 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     if (taskToEdit) {
       setNamaTugas(taskToEdit.namaTugas);
       setMataKuliahId(taskToEdit.mataKuliahId);
-      const parts = taskToEdit.deadline.split('T');
-      setDeadlineDate(parts[0] || '');
-      setDeadlineTime(parts[1] || '');
+      // Jangan pakai split('T') mentah: deadline dari Supabase berbentuk
+      // "...T23:59:00.000Z" sehingga jamnya jadi tidak valid untuk
+      // <input type="time"> dan jam tersebut hilang saat disimpan.
+      const { date, time } = splitTanggalWaktuInput(taskToEdit.deadline);
+      setDeadlineDate(date);
+      setDeadlineTime(time);
       setDeskripsi(taskToEdit.deskripsi || '');
     } else {
       setNamaTugas('');
@@ -50,9 +59,13 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   if (!isOpen) return null;
 
   // Real-time reminder availability preview
-  const currentDeadline = deadlineDate && deadlineTime ? `${deadlineDate}T${deadlineTime}` : '';
-  const nowStr = new Date().toISOString();
-  const computedReminders = currentDeadline ? calculateReminders(nowStr, currentDeadline) : [];
+  const currentDeadline = gabungTanggalWaktu(deadlineDate, deadlineTime);
+  // "Sekarang" dalam waktu LOKAL (toISOString() = UTC dan membuat selisih
+  //  meleset hingga 7 jam di WIB).
+  const now = new Date();
+  const computedReminders = currentDeadline
+    ? calculateReminders(gabungTanggalWaktu(dateKey(now), formatWaktu(now)), currentDeadline)
+    : [];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

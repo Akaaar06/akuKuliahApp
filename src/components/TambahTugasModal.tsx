@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Course, Task } from '../types';
 import { X, Calendar, PlusCircle } from 'lucide-react';
+import { formatTanggalWaktu, getBadgeDeadline, parseTanggal } from '../utils/date';
 
 interface TambahTugasModalProps {
   isOpen: boolean;
@@ -40,10 +41,10 @@ export const TambahTugasModal: React.FC<TambahTugasModalProps> = ({
       .filter(([_, checked]) => checked)
       .map(([label]) => label);
 
-    // Format display date
-    const d = new Date(`${deadlineDate}T${deadlineTime}`);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    const displayDate = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}, ${deadlineTime}`;
+    // Format display date — selalu divalidasi supaya tidak pernah tampil
+    // "NaN NaN NaN" saat input tanggal tidak terbaca.
+    const d = parseTanggal(`${deadlineDate}T${deadlineTime}`);
+    const displayDate = formatTanggalWaktu(d) || `${deadlineDate} ${deadlineTime}`.trim();
 
     onAddTask({
       namaTugas,
@@ -51,6 +52,7 @@ export const TambahTugasModal: React.FC<TambahTugasModalProps> = ({
       mataKuliahNama: course.nama.toUpperCase(),
       deadline: `${deadlineDate}T${deadlineTime}`,
       deadlineDisplay: displayDate,
+      badgeDeadline: getBadgeDeadline(`${deadlineDate}T${deadlineTime}`),
       deskripsi,
       selesai: false,
       reminders: selectedReminders,

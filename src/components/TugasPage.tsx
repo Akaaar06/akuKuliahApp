@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Task } from '../types';
 import { Check, Clock, Calendar, ArrowUpDown, Plus, Bell, Edit2, Trash2 } from 'lucide-react';
+import { bandingkanDeadline } from '../utils/date';
 
 interface TugasPageProps {
   tasks: Task[];
@@ -32,7 +33,9 @@ export const TugasPage: React.FC<TugasPageProps> = ({
 
   const sortedTasks = [...filteredTasks].sort((a, b) => {
     if (sortBy === 'deadline') {
-      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      // Comparator aman: deadline kosong/tidak valid dulu pernah menghasilkan
+      // NaN yang membuat urutan seluruh tabel tidak stabil.
+      return bandingkanDeadline(a.deadline, b.deadline);
     }
     return a.namaTugas.localeCompare(b.namaTugas);
   });

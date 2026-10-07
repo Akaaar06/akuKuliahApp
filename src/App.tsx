@@ -263,16 +263,25 @@ export default function App() {
     status: AttendanceRecordStatus,
     topik?: string
   ) => {
-    const updated = StorageService.recordAttendance(courseId, tanggal, status, topik);
+    // Pakai versi detailed: record yang benar-benar tersimpan dikembalikan,
+    // sehingga mingguKe & tanggal yang dikirim ke Supabase selalu milik sesi
+    // yang tepat. Sebelumnya `find(r => r.tanggal === tanggal)` bisa gagal
+    // (mis. tanggal sudah dinormalisasi) lalu jatuh ke mingguKe = 1 dan
+    // menimpa record minggu 1 di server.
+    const { courses: updated, record } = StorageService.recordAttendanceDetailed(
+      courseId,
+      tanggal,
+      status,
+      topik
+    );
     setCourses(updated);
-    const crs = updated.find((c) => c.id === courseId);
-    const rec = crs?.riwayatPresensi.find((r) => r.tanggal === tanggal);
+
     SupabaseService.saveAttendanceRecord(
       courseId,
-      rec ? rec.mingguKe : 1,
-      status,
-      tanggal,
-      topik
+      record?.mingguKe ?? 1,
+      record?.status ?? status,
+      record?.tanggal ?? tanggal,
+      record?.topik ?? topik
     );
     showToast('Presensi berhasil dicatat');
   };

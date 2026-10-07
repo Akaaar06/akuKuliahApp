@@ -1,7 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Course, AttendanceRecordStatus } from '../types';
 import { X, Check } from 'lucide-react';
-import { getTodayFormatted } from '../services/storage';
+import {
+  dateKey,
+  formatTanggal,
+  getTanggalHariIni,
+  parseTanggal,
+  toDateInputValue,
+} from '../utils/date';
 
 interface IsiPresensiModalProps {
   isOpen: boolean;
@@ -16,6 +22,13 @@ interface IsiPresensiModalProps {
   ) => void;
 }
 
+const STATUS_LABEL: Record<AttendanceRecordStatus, string> = {
+  hadir: 'Hadir',
+  'tidak-hadir': 'Tidak Hadir',
+  belum: 'Belum Diisi',
+  libur: 'Tidak Ada Perkuliahan',
+};
+
 export const IsiPresensiModal: React.FC<IsiPresensiModalProps> = ({
   isOpen,
   onClose,
@@ -24,32 +37,65 @@ export const IsiPresensiModal: React.FC<IsiPresensiModalProps> = ({
   onSaveAttendance,
 }) => {
   const [courseId, setCourseId] = useState(initialCourseId || courses[0]?.id || '');
+  // Nilai disimpan sebagai "YYYY-MM-DD" agar input tanggal native selalu valid
+  // dan perbandingan antar sesi bisa dilakukan lewat dateKey().
   const [tanggal, setTanggal] = useState('');
   const [status, setStatus] = useState<AttendanceRecordStatus>('hadir');
   const [topik, setTopik] = useState('');
 
+  // Referensi untuk mendeteksi transisi buka / ganti Courses tanpa
+  // bergantung pada referensi `courses` yang selalu berubah setiap render
+  // (sebelumnya form di-reset setiap kali courses berubah, sehingga ketikan
+  //  pengguna hilang di tengah pengisian).
+  const prevOpen = useRef(false);
+  const prevInitialId = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    if (isOpen) {
-      const activeId = initialCourseId || courses[0]?.id || '';
-      setCourseId(activeId);
-      const course = courses.find((c) => c.id === activeId);
-      if (course && course.riwayatPresensi.length > 0) {
-        const last = course.riwayatPresensi[course.riwayatPresensi.length - 1];
-        setTanggal(last.tanggal);
-        setStatus(last.status === 'belum' ? 'hadir' : last.status);
-      } else {
-        setTanggal(getTodayFormatted());
-        setStatus('hadir');
-      }
-      setTopik('');
+    const baruDibuka = isOpen && !prevOpen.current;
+    const gantiMataKuliah = isOpen && initialCourseId !== prevInitialId.current;
+    prevOpen.current = isOpen;
+    prevInitialId.current = initialCourseId;
+
+    if (!baruDibuka && !gantiMataKuliah) return;
+
+    const activeId = initialCourseId || courses[0]?.id || '';
+    setCourseId(activeId);
+
+    const course = courses.find((c) => c.id === activeId);
+    // Penting: riwayatPresensi bisa undefined pada data lama.
+    const records = course?.riwayatPresensi || [];
+    const last = records.length > 0 ? records[records.length - 1] : undefined;
+
+    if (last) {
+      const d = parseTanggal(last.tanggal);
+      setTanggal(d ? toDateInputValue(d) : toDateInputValue(new Date()));
+      setStatus(last.status === 'belum' ? 'hadir' : last.status);
+    } else {
+      setTanggal(toDateInputValue(new Date()));
+      setStatus('hadir');
     }
-  }, [initialCourseId, courses, isOpen]);
+    setTopik('');
+    // Sengaja `courses` tidak ikut dependensi — lihat catatan di atas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialCourseId]);
 
   if (!isOpen) return null;
 
+  const activeCourse = courses.find((c) => c.id === courseId);
+  const activeRecords = activeCourse?.riwayatPresensi || [];
+  const lastRecord = activeRecords.length > 0 ? activeRecords[activeRecords.length - 1] : undefined;
+
+  // Sesi yang sedang diisi = yang tanggalnya sama persis dengan input.
+  const sesiTerpilih = activeRecords.find((r) => dateKey(r.tanggal) === dateKey(tanggal));
+  const sesiBaru = !sesiTerpilih;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveAttendance(courseId, tanggal, status, topik || undefined);
+    if (!courseId || !tanggal) return;
+
+    // Kirim format Indonesia agar konsisten dengan data absensi yang tersimpan.
+    const tanggalTerformat = formatTanggal(parseTanggal(tanggal)) || getTanggalHariIni();
+    onSaveAttendance(courseId, tanggalTerformat, status, topik.trim() || undefined);
     onClose();
   };
 
@@ -61,6 +107,7 @@ export const IsiPresensiModal: React.FC<IsiPresensiModalProps> = ({
             Isi Presensi Perkuliahan
           </h3>
           <button
+            type="button"
             onClick={onClose}
             className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
           >
@@ -88,16 +135,34 @@ export const IsiPresensiModal: React.FC<IsiPresensiModalProps> = ({
 
           <div>
             <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Tanggal / Pertemuan
+              Tanggal Pertemuan
             </label>
             <input
-              type="text"
+              type="date"
               required
               value={tanggal}
               onChange={(e) => setTanggal(e.target.value)}
-              placeholder="Contoh: 24 Okt 2024"
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-900 dark:text-white focus:outline-none focus:border-[#C2410C]"
             />
+            <span className="text-[10px] text-slate-400 block mt-1">
+              {sesiBaru ? (
+                <>
+                  Sesi baru pada{' '}
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">
+                    {formatTanggal(parseTanggal(tanggal)) || '-'}
+                  </span>{' '}
+                  akan ditambahkan.
+                </>
+              ) : (
+                <>
+                  Mengubah sesi{' '}
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">
+                    Minggu ke-{sesiTerpilih!.mingguKe}
+                  </span>{' '}
+                  ({STATUS_LABEL[sesiTerpilih!.status]} saat ini).
+                </>
+              )}
+            </span>
           </div>
 
           {/* Status Options: Hadir, Tidak Hadir, Tidak Ada Perkuliahan */}
@@ -158,7 +223,7 @@ export const IsiPresensiModal: React.FC<IsiPresensiModalProps> = ({
               type="text"
               value={topik}
               onChange={(e) => setTopik(e.target.value)}
-              placeholder="Contoh: Pembahasan Query Optimization"
+              placeholder={lastRecord?.topik || 'Contoh: Pembahasan Query Optimization'}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-900 dark:text-white focus:outline-none focus:border-[#C2410C]"
             />
           </div>
@@ -173,7 +238,8 @@ export const IsiPresensiModal: React.FC<IsiPresensiModalProps> = ({
             </button>
             <button
               type="submit"
-              className="w-1/2 py-2.5 rounded-xl bg-[#BA3808] hover:bg-[#9B2F00] text-white font-medium flex items-center justify-center gap-1.5 shadow-xs"
+              disabled={!courseId || !tanggal}
+              className="w-1/2 py-2.5 rounded-xl bg-[#BA3808] hover:bg-[#9B2F00] disabled:opacity-50 disabled:hover:bg-[#BA3808] text-white font-medium flex items-center justify-center gap-1.5 shadow-xs"
             >
               <Check className="w-4 h-4" />
               Simpan

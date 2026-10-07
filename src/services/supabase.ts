@@ -1,5 +1,15 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Course, Task, MaterialFile, AttendanceRecordStatus, AppSettings } from '../types';
+import {
+  dateKey,
+  formatTanggal,
+  formatTanggalWaktu,
+  formatWaktu,
+  gabungTanggalWaktu,
+  getBadgeDeadline,
+  getTanggalHariIni,
+  parseTanggal,
+} from '../utils/date';
 
 const envUrl = import.meta.env.VITE_SUPABASE_URL;
 const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -76,22 +86,32 @@ export const SupabaseService = {
           minggu: rd.minggu,
           dosen: rd.dosen,
         })),
-        materi: (row.materi || []).map((m: any) => ({
-          id: m.id,
-          nama: m.nama,
-          pertemuan: m.pertemuan,
-          format: m.format,
-          ukuran: m.ukuran,
-          kategori: m.kategori,
-          lokasiPenyimpanan: m.lokasi_penyimpanan,
-          tanggal: m.tanggal_upload || 'Baru',
-        })),
-        riwayatPresensi: (row.presensi || []).map((p: any) => ({
-          tanggal: p.tanggal,
-          status: p.status as AttendanceRecordStatus,
-          mingguKe: p.minggu_ke,
-          topik: p.topik,
-        })),
+        materi: (row.materi || []).map((m: any) => {
+          const tglUpload = parseTanggal(m.tanggal_upload);
+          return {
+            id: m.id,
+            nama: m.nama,
+            pertemuan: m.pertemuan,
+            format: m.format,
+            ukuran: m.ukuran,
+            kategori: m.kategori,
+            lokasiPenyimpanan: m.lokasi_penyimpanan,
+            // Tanggal upload dari DB berupa ISO UTC; ditampilkan sebagai
+            // tanggal lokal "7 Okt 2026".
+            tanggal: tglUpload ? formatTanggal(tglUpload) : 'Baru',
+          };
+        }),
+        // Presensi dari DB dinormalisasi ke format Indonesia agar pencocokan
+        // sesi (dateKey) bekerja sama dengan record yang dibuat lokal.
+        riwayatPresensi: (row.presensi || []).map((p: any) => {
+          const tgl = parseTanggal(p.tanggal);
+          return {
+            tanggal: tgl ? formatTanggal(tgl) : (p.tanggal || ''),
+            status: p.status as AttendanceRecordStatus,
+            mingguKe: Number(p.minggu_ke) || 1,
+            topik: p.topik,
+          };
+        }),
       }));
 
       return formattedCourses;
@@ -117,18 +137,30 @@ export const SupabaseService = {
 
       if (!data || data.length === 0) return null;
 
-      return data.map((t: any) => ({
-        id: t.id,
-        mataKuliahId: t.id_mata_kuliah,
-        namaTugas: t.nama_tugas,
-        mataKuliahNama: t.nama_mata_kuliah || 'MATA KULIAH',
-        deadline: t.deadline,
-        deadlineDisplay: t.deadline ? new Date(t.deadline).toLocaleDateString('id-ID') : '',
-        deskripsi: t.deskripsi || '',
-        tanggalDibuat: t.tanggal_dibuat || new Date().toISOString(),
-        selesai: Boolean(t.selesai),
-        reminders: t.reminders ? (typeof t.reminders === 'string' ? JSON.parse(t.reminders) : t.reminders) : [],
-      }));
+      return data.map((t: any) => {
+        // Deadline dinormalisasi ke waktu lokal "YYYY-MM-DDTHH:mm" supaya
+        // form edit (yang memakai <input type="date">/type="time">) tidak
+        // kehilangan jam dan sorting antar tugas konsisten.
+        const deadlineDate = parseTanggal(t.deadline);
+        const deadline = deadlineDate
+          ? gabungTanggalWaktu(dateKey(deadlineDate), formatWaktu(deadlineDate))
+          : (t.deadline || '');
+        const dibuatDate = parseTanggal(t.tanggal_dibuat);
+
+        return {
+          id: t.id,
+          mataKuliahId: t.id_mata_kuliah,
+          namaTugas: t.nama_tugas,
+          mataKuliahNama: t.nama_mata_kuliah || 'MATA KULIAH',
+          deadline,
+          deadlineDisplay: formatTanggalWaktu(deadlineDate) || t.deadline || '',
+          badgeDeadline: getBadgeDeadline(deadline),
+          deskripsi: t.deskripsi || '',
+          tanggalDibuat: dibuatDate ? formatTanggal(dibuatDate) : getTanggalHariIni(),
+          selesai: Boolean(t.selesai),
+          reminders: t.reminders ? (typeof t.reminders === 'string' ? JSON.parse(t.reminders) : t.reminders) : [],
+        };
+      });
     } catch (e) {
       console.error('Supabase fetchTasks exception:', e);
       return null;
@@ -180,7 +212,9 @@ export const SupabaseService = {
         id: task.id,
         id_mata_kuliah: task.mataKuliahId,
         nama_tugas: task.namaTugas,
+        nama_mata_kuliah: task.mataKuliahNama || null,
         deadline: task.deadline,
+        tanggal_dibuat: task.tanggalDibuat || getTanggalHariIni(),
         deskripsi: task.deskripsi || null,
         selesai: task.selesai,
         reminders: JSON.stringify(task.reminders || []),

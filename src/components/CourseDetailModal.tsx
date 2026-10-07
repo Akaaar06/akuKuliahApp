@@ -24,6 +24,7 @@ interface CourseDetailModalProps {
   onClose: () => void;
   onEditCourse: (course: Course) => void;
   onDeleteCourse: (courseId: string) => void;
+  onAddLecturerPeriod: (courseId: string, minggu: string, dosen: string) => void;
   onOpenAddMaterial: (courseId: string) => void;
   onDownloadMaterial: (material: MaterialFile) => void;
   onDeleteMaterial: (courseId: string, materialId: string) => void;
@@ -34,13 +35,26 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
   onClose,
   onEditCourse,
   onDeleteCourse,
+  onAddLecturerPeriod,
   onOpenAddMaterial,
   onDownloadMaterial,
   onDeleteMaterial,
 }) => {
+  const [minggu, setMinggu] = useState('');
+  const [dosen, setDosen] = useState('');
+
   if (!course) return null;
 
   const { hadir, totalActual, persen } = calculateAttendancePercentage(course);
+  const riwayatDosen = course.riwayatDosen || [];
+
+  const handleAddPeriod = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!minggu.trim() || !dosen.trim()) return;
+    onAddLecturerPeriod(course.id, minggu.trim(), dosen.trim());
+    setMinggu('');
+    setDosen('');
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/40 backdrop-blur-xs">
@@ -120,6 +134,59 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Riwayat Periode Dosen Pengampu */}
+          <div className="space-y-2">
+            <span className="font-bold text-slate-800 dark:text-slate-200 block">
+              Riwayat Dosen Pengampu ({riwayatDosen.length})
+            </span>
+
+            {riwayatDosen.length === 0 ? (
+              <p className="text-[11px] text-slate-400">
+                Belum ada riwayat pergantian dosen.
+              </p>
+            ) : (
+              <div className="rounded-xl border border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
+                {riwayatDosen.map((rd, idx) => (
+                  <div
+                    key={`${rd.minggu}-${idx}`}
+                    className="p-2.5 flex items-center justify-between gap-2 text-[11px] bg-white dark:bg-slate-900"
+                  >
+                    <span className="font-mono text-slate-500 dark:text-slate-400 shrink-0">
+                      {rd.minggu}
+                    </span>
+                    <span className="font-medium text-slate-800 dark:text-slate-100 text-right truncate">
+                      {rd.dosen}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={handleAddPeriod} className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={minggu}
+                onChange={(e) => setMinggu(e.target.value)}
+                placeholder="Minggu 1-7"
+                className="w-1/2 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] text-slate-900 dark:text-white focus:outline-none focus:border-[#C2410C]"
+              />
+              <input
+                type="text"
+                value={dosen}
+                onChange={(e) => setDosen(e.target.value)}
+                placeholder="Nama dosen"
+                className="w-1/2 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] text-slate-900 dark:text-white focus:outline-none focus:border-[#C2410C]"
+              />
+              <button
+                type="submit"
+                disabled={!minggu.trim() || !dosen.trim()}
+                className="shrink-0 px-2.5 py-1.5 rounded-lg bg-[#BA3808] hover:bg-[#9B2F00] disabled:opacity-50 text-white text-[11px] font-semibold"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+              </button>
+            </form>
           </div>
 
           {/* 2. Link Google Drive */}

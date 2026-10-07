@@ -1,4 +1,4 @@
-import { Course, Task, MaterialFile, AttendanceRecordStatus, AppSettings } from '../types';
+import { Course, Task, MaterialFile, AttendanceRecord, AttendanceRecordStatus, AppSettings } from '../types';
 import { initialStudent, initialCourses, initialTasks, initialSettings } from '../data/mockData';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import {
@@ -8,33 +8,48 @@ import {
   deleteDoc,
   getDocs,
 } from 'firebase/firestore';
+import {
+  buatIdUnik,
+  calculateReminders,
+  dateKey,
+  formatTanggal,
+  formatTanggalWaktu,
+  formatWaktu,
+  gabungTanggalWaktu,
+  getBadgeDeadline,
+  getTanggalHariIni,
+  parseTanggal,
+} from '../utils/date';
 
 const COURSES_KEY = 'akukuliah_db_courses_v2';
 const TASKS_KEY = 'akukuliah_db_tasks_v2';
 const SETTINGS_KEY = 'akukuliah_db_settings_v2';
 const PROFILE_KEY = 'akukuliah_db_profile_v2';
 
+/** Dipertahankan sebagai re-export agar import lama tidak rusak. */
 export function getTodayFormatted(): string {
-  const now = new Date();
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-  return `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  return getTanggalHariIni();
 }
 
-// Helper to calculate reminder dates based on deadline and createdDate
-export function calculateReminders(createdDateStr: string, deadlineStr: string): string[] {
-  const created = new Date(createdDateStr);
-  const deadline = new Date(deadlineStr);
-  const diffTime = deadline.getTime() - created.getTime();
-  const diffDays = diffTime / (1000 * 60 * 60 * 24);
-
-  const available: string[] = [];
-  if (diffDays > 7) available.push('7 hari sebelum');
-  if (diffDays > 5) available.push('5 hari sebelum');
-  if (diffDays > 3) available.push('3 hari sebelum');
-  if (diffDays > 1) available.push('1 hari sebelum');
-
-  return available;
+/** Nomor minggu berikutnya: max(mingguKe) + 1, bukan length + 1. */
+function mingguBerikutnya(records: AttendanceRecord[]): number {
+  return records.reduce((max, r) => {
+    const n = Number(r.mingguKe);
+    return Number.isFinite(n) && n > max ? n : max;
+  }, 0) + 1;
 }
+
+/**
+ * Record absensi terakhir, diabaikan bila hanya berisi slot "belum" yang
+ * menggantung di ekor riwayat.
+ */
+function recordTerakhir(records: AttendanceRecord[]): AttendanceRecord | undefined {
+  return records.length > 0 ? records[records.length - 1] : undefined;
+}
+
+// Helper untuk reminder dipindah ke utils/date (logika tanggal murni) lalu
+// di-re-export di sini agar import lama tetap berfungsi.
+export { calculateReminders } from '../utils/date';
 
 // Helper to calculate attendance percentage (excluding 'libur')
 export function calculateAttendancePercentage(course: Course): {
@@ -107,7 +122,7 @@ export const StorageService = {
     const courses = this.getCourses();
     const newCourse: Course = {
       ...courseData,
-      id: `mk-${Date.now()}`,
+      id: buatIdUnik('mk'),
       riwayatDosen: [],
       materi: [],
       riwayatPresensi: [],
@@ -203,12 +218,12 @@ export const StorageService = {
     const courses = this.getCourses().map((c) => {
       if (c.id === courseId) {
         const newMaterial: MaterialFile = {
-          id: `m-${Date.now()}`,
+          id: buatIdUnik('m'),
           nama: fileData.nama,
           pertemuan: fileData.pertemuan,
           format: fileData.format,
           ukuran: fileData.ukuran,
-          tanggal: getTodayFormatted(),
+          tanggal: getTanggalHariIni(),
           kategori: fileData.kategori || 'Materi',
           lokasiPenyimpanan: fileData.lokasiPenyimpanan || 'gs://akukuliah-app.appspot.com/materials/' + fileData.nama,
         };
@@ -261,77 +276,117 @@ export const StorageService = {
   },
 
   // ATTENDANCE
+  /**
+   * Catat kehadiran untuk satu sesi.
+   *
+   * Pencocokan record memakai `dateKey` (hari kalender), bukan string persis,
+   * sehingga "24 Okt 2024", "24-10-2024", dan `2024-10-24` saling menimpa
+   * alih-alih membuat sesi ganda.
+   *
+   * Slot `belum` yang menggantung di ekor riwayat TIDAK lagi ditimpa memakai
+   * tanggal pilihan pengguna; kalau tanggal berbeda, record baru ditambahkan
+   * dan slot `belum` tetap utuh sebagai sesi yang belum diisi.
+   */
+  recordAttendanceDetailed(
+    courseId: string,
+    tanggal: string,
+    status: AttendanceRecordStatus,
+    topik?: string
+  ): { courses: Course[]; record: AttendanceRecord | null } {
+    let saved: AttendanceRecord | null = null;
+
+    const courses = this.getCourses().map((c) => {
+      if (c.id !== courseId) return c;
+
+      const records = c.riwayatPresensi || [];
+
+      // Tanggal yang dipakai: input pengguna, fallback ke hari ini.
+      const tanggalDipakai = (tanggal || '').trim() || getTanggalHariIni();
+      const tanggalTersimpan = formatTanggal(parseTanggal(tanggalDipakai)) || tanggalDipakai;
+      const kunci = dateKey(tanggalTersimpan);
+
+      const existingIdx = records.findIndex((r) => dateKey(r.tanggal) === kunci);
+      let updatedRecords: AttendanceRecord[];
+
+      if (existingIdx >= 0) {
+        // Sesi yang sama -> perbarui statusnya.
+        const lama = records[existingIdx];
+        const baru: AttendanceRecord = {
+          ...lama,
+          tanggal: tanggalTersimpan,
+          status,
+          topik: topik || lama.topik,
+        };
+        updatedRecords = [...records];
+        updatedRecords[existingIdx] = baru;
+        saved = baru;
+      } else {
+        // Sesi baru -> tambahkan, nomor minggu dihitung dari max(mingguKe).
+        const baru: AttendanceRecord = {
+          tanggal: tanggalTersimpan,
+          mingguKe: mingguBerikutnya(records),
+          status,
+          topik: topik || 'Perkuliahan Tatap Muka',
+        };
+        updatedRecords = [...records, baru];
+        saved = baru;
+      }
+
+      const updatedCourse = {
+        ...c,
+        riwayatPresensi: updatedRecords,
+      };
+      try {
+        setDoc(doc(db, 'courses', courseId), updatedCourse).catch((err) =>
+          console.warn('Firestore write warning:', err)
+        );
+      } catch (e) {
+        console.warn('Firestore write error:', e);
+      }
+      return updatedCourse;
+    });
+
+    this.saveCourses(courses);
+    return { courses, record: saved };
+  },
+
   recordAttendance(
     courseId: string,
     tanggal: string,
     status: AttendanceRecordStatus,
     topik?: string
   ): Course[] {
-    const courses = this.getCourses().map((c) => {
-      if (c.id === courseId) {
-        const records = c.riwayatPresensi || [];
-        const dateToUse = tanggal.trim() || getTodayFormatted();
-        const existingIdx = records.findIndex((r) => r.tanggal === dateToUse);
-        let updatedRecords = [...records];
-
-        if (existingIdx >= 0) {
-          updatedRecords[existingIdx] = {
-            ...updatedRecords[existingIdx],
-            status,
-            topik: topik || updatedRecords[existingIdx].topik,
-          };
-        } else if (records.length > 0 && records[records.length - 1].status === 'belum') {
-          // If the last record was pending ('belum'), update it
-          const lastIdx = records.length - 1;
-          updatedRecords[lastIdx] = {
-            ...updatedRecords[lastIdx],
-            tanggal: dateToUse,
-            status,
-            topik: topik || updatedRecords[lastIdx].topik,
-          };
-        } else {
-          updatedRecords.push({
-            tanggal: dateToUse,
-            mingguKe: updatedRecords.length + 1,
-            status,
-            topik: topik || 'Perkuliahan Tatap Muka',
-          });
-        }
-        const updatedCourse = {
-          ...c,
-          riwayatPresensi: updatedRecords,
-        };
-        try {
-          setDoc(doc(db, 'courses', courseId), updatedCourse).catch((err) =>
-            console.warn('Firestore write warning:', err)
-          );
-        } catch (e) {
-          console.warn('Firestore write error:', e);
-        }
-        return updatedCourse;
-      }
-      return c;
-    });
-    this.saveCourses(courses);
-    return courses;
+    return this.recordAttendanceDetailed(courseId, tanggal, status, topik).courses;
   },
 
+  /**
+   * Mulai minggu baru: menambah satu slot `belum` per mata kuliah.
+   * Bila slot `belum` sudah ada di ekor riwayat, slot itu DAPATKAN ULANG
+   * (tidak diduplikasi) supaya tombol "+ Minggu Baru" yang ditekan berkali-kali
+   * tidak menumpuk baris kosong.
+   */
   startNewWeek(): Course[] {
-    const dateStr = getTodayFormatted();
+    const dateStr = getTanggalHariIni();
     const courses = this.getCourses().map((c) => {
-      const nextWeekNum = (c.riwayatPresensi || []).length + 1;
-      const updatedCourse = {
-        ...c,
-        riwayatPresensi: [
-          ...(c.riwayatPresensi || []),
-          {
-            tanggal: dateStr,
-            mingguKe: nextWeekNum,
-            status: 'belum' as const,
-            topik: `Pertemuan Minggu Ke-${nextWeekNum}`,
-          },
-        ],
-      };
+      const records = c.riwayatPresensi || [];
+      const terakhir = recordTerakhir(records);
+      const sudahAdaSlotKosong = terakhir?.status === 'belum';
+
+      const mingguKe = mingguBerikutnya(records);
+
+      const riwayatPresensi: AttendanceRecord[] = sudahAdaSlotKosong
+        ? records
+        : [
+            ...records,
+            {
+              tanggal: dateStr,
+              mingguKe,
+              status: 'belum' as const,
+              topik: `Pertemuan Minggu Ke-${mingguKe}`,
+            },
+          ];
+
+      const updatedCourse = { ...c, riwayatPresensi };
       try {
         setDoc(doc(db, 'courses', c.id), updatedCourse).catch((err) =>
           console.warn('Firestore write warning:', err)
@@ -373,25 +428,31 @@ export const StorageService = {
     const tasks = this.getTasks();
     const courses = this.getCourses();
     const course = courses.find((c) => c.id === taskData.mataKuliahId);
-    const nowStr = new Date().toISOString();
+
+    // "Sekarang" harus waktu LOKAL supaya selisih dengan deadline lokal akurat.
+    // (toISOString() = UTC, sedangkan deadline dari <input type="date"> = lokal;
+    //  mencampur keduanya membuat reminder meleset hingga 7 jam di WIB.)
+    const now = new Date();
+    const nowStr = gabungTanggalWaktu(dateKey(now), formatWaktu(now));
 
     const reminders = calculateReminders(nowStr, taskData.deadline);
 
-    const d = new Date(taskData.deadline);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    const displayDate = !isNaN(d.getTime())
-      ? `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    // Normalisasi deadline ke "YYYY-MM-DDTHH:mm" waktu lokal bila bisa diparse.
+    const deadline = parseTanggal(taskData.deadline);
+    const deadlineNormalized = deadline
+      ? gabungTanggalWaktu(dateKey(deadline), formatWaktu(deadline))
       : taskData.deadline;
 
     const newTask: Task = {
-      id: `t-${Date.now()}`,
+      id: buatIdUnik('t'),
       namaTugas: taskData.namaTugas,
       mataKuliahId: taskData.mataKuliahId,
       mataKuliahNama: course ? course.nama.toUpperCase() : 'MATA KULIAH',
-      deadline: taskData.deadline,
-      deadlineDisplay: displayDate,
+      deadline: deadlineNormalized,
+      deadlineDisplay: formatTanggalWaktu(deadline) || taskData.deadline,
+      badgeDeadline: getBadgeDeadline(deadlineNormalized),
       deskripsi: taskData.deskripsi,
-      tanggalDibuat: getTodayFormatted(),
+      tanggalDibuat: getTanggalHariIni(),
       selesai: false,
       reminders,
     };
@@ -415,6 +476,14 @@ export const StorageService = {
     const tasks = this.getTasks().map((t) => {
       if (t.id === taskId) {
         const merged = { ...t, ...updatedData };
+
+        // Deadline berubah -> segarkan tampilan & badge tenggat.
+        if (updatedData.deadline) {
+          const d = parseTanggal(updatedData.deadline);
+          merged.deadlineDisplay = formatTanggalWaktu(d) || updatedData.deadline;
+          merged.badgeDeadline = getBadgeDeadline(updatedData.deadline);
+        }
+
         try {
           setDoc(doc(db, 'tasks', taskId), merged).catch((err) =>
             console.warn('Firestore write warning:', err)

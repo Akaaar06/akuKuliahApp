@@ -13,6 +13,7 @@ import {
   User,
   Pencil,
 } from 'lucide-react';
+import { bandingkanDeadline, formatTanggal } from '../utils/date';
 
 interface HomePageProps {
   courses: Course[];
@@ -39,10 +40,8 @@ export const HomePage: React.FC<HomePageProps> = ({
   onNavigateToAbsen,
   onOpenEditProfile,
 }) => {
-  // Format dynamic real current date
-  const now = new Date();
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-  const todayFormatted = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  // Format dynamic real current date (pakai utilitas tanggal terpusat)
+  const todayFormatted = formatTanggal(new Date());
 
   // 1. Dynamic Attendance Calculation from real course database
   let totalAttended = 0;
@@ -67,9 +66,9 @@ export const HomePage: React.FC<HomePageProps> = ({
 
   // 2. Dynamic Unfinished Tasks & Urgent Tasks sorted by nearest deadline
   const unfinishedTasks = tasks.filter((t) => !t.selesai);
-  const urgentTasks = [...unfinishedTasks].sort((a, b) => {
-    return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
-  });
+  const urgentTasks = [...unfinishedTasks].sort((a, b) =>
+    bandingkanDeadline(a.deadline, b.deadline)
+  );
 
   // Calculate total SKS from active semester courses
   const totalSemesterSks = courses.reduce((sum, c) => sum + (c.sks || 0), 0);

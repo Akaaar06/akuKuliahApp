@@ -1,11 +1,5 @@
 import { Course, Task, AppSettings } from '../types';
-
-// Helper to generate current date string in Indonesian format
-function getTodayFormatted(): string {
-  const now = new Date();
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-  return `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
-}
+import { getTanggalHariIni } from '../utils/date';
 
 export const initialStudent = {
   nama: 'Sarah Az-Zahra',
@@ -14,7 +8,7 @@ export const initialStudent = {
   semester: 3,
   bebanSks: 24,
   ipk: 3.61,
-  tanggal: getTodayFormatted(),
+  tanggal: getTanggalHariIni(),
   status: 'Aktif',
   sesiHadir: 0,
   totalSesi: 0,
